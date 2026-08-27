@@ -1,0 +1,6 @@
+{
+  "name": "DocClean Scanner",
+  "description": "Deterministic automated document cleaning and scanner software with real-time perspective correction, shadow removal, multi-slider quality control, and PDF export.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
