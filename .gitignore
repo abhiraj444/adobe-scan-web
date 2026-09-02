@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+# Auto-copied from node_modules by scripts/copy-pdfjs-assets.mjs
+public/cmaps/
+public/standard_fonts/

@@ -1,12 +1,12 @@
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Configure worker - use Vite's ?url import pattern for reliable bundling
-// This is the ONLY reliable way to load pdfjs worker in Vite production builds
-const workerUrl = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url
-);
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl.href;
+// ────────────────────────────────────────────────────────────────
+// WORKER — Vite's ?url import emits the file and returns its URL.
+// This bundles the worker into dist/assets/ at build time.
+// Zero CDN. Zero network dependency. 100% offline-safe.
+// ────────────────────────────────────────────────────────────────
+import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
 export interface ExtractedPdfPage {
   pageNumber: number;
@@ -20,7 +20,11 @@ export interface ExtractedPdfPage {
 
 /**
  * Extracts all pages of a PDF file as image data URLs and lightweight thumbnails.
- * Uses the v6 canvas-first API for pdfjs-dist 6.2.108.
+ *
+ * Everything is local:
+ *  - Worker: bundled via Vite ?url import
+ *  - CMap files: served from /cmaps/ (public/ directory)
+ *  - Standard fonts: served from /standard_fonts/ (public/ directory)
  */
 export async function extractPdfPages(
   file: File,
@@ -28,21 +32,18 @@ export async function extractPdfPages(
 ): Promise<ExtractedPdfPage[]> {
   const arrayBuffer = await file.arrayBuffer();
 
-  console.log('[pdfImporter] Worker src:', pdfjsLib.GlobalWorkerOptions.workerSrc);
-  console.log('[pdfImporter] pdfjs-dist version:', pdfjsLib.version);
-  console.log('[pdfImporter] File size:', arrayBuffer.byteLength, 'bytes');
-
   const loadingTask = pdfjsLib.getDocument({
     data: new Uint8Array(arrayBuffer),
-    cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
+    // Local paths — Vite serves public/ at root
+    cMapUrl: '/cmaps/',
     cMapPacked: true,
-    standardFontDataUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/standard_fonts/`,
+    standardFontDataUrl: '/standard_fonts/',
+    // Disable worker-side font loading for maximum compatibility
+    useSystemFonts: false,
   });
 
   const pdf = await loadingTask.promise;
   const numPages = pdf.numPages;
-  console.log('[pdfImporter] PDF loaded successfully, numPages:', numPages);
-
   const pages: ExtractedPdfPage[] = [];
 
   for (let pageNum = 1; pageNum <= numPages; pageNum++) {
@@ -52,12 +53,12 @@ export async function extractPdfPages(
 
     const page = await pdf.getPage(pageNum);
 
-    // Exact original PDF dimensions in points (72 points = 1 inch)
+    // Original PDF dimensions in points (72pt = 1 inch)
     const baseViewport = page.getViewport({ scale: 1.0 });
     const pdfWidthPt = baseViewport.width;
     const pdfHeightPt = baseViewport.height;
 
-    // Scale for rendering — clamp to avoid huge canvases
+    // Render scale — cap at 2x to avoid OOM on huge PDFs
     const targetScale = Math.min(2.0, Math.max(1.0, 1100 / (baseViewport.width || 600)));
     const viewport = page.getViewport({ scale: targetScale });
 
@@ -67,36 +68,22 @@ export async function extractPdfPages(
     canvas.width = w;
     canvas.height = h;
 
-    // v6 API: pass canvas directly (preferred), no canvasContext needed
-    const renderTask = page.render({
+    // Fill white background first (PDFs can have transparent backgrounds)
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    // pdfjs-dist v6 API: pass canvas directly
+    await page.render({
       canvas: canvas,
       viewport: viewport,
-    } as any);
-
-    await renderTask.promise;
-
-    // Verify the canvas actually has content (not blank)
-    if (pageNum <= 3) {
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        const sample = ctx.getImageData(0, 0, Math.min(w, 100), Math.min(h, 100));
-        let nonWhitePixels = 0;
-        for (let i = 0; i < sample.data.length; i += 4) {
-          if (sample.data[i] < 250 || sample.data[i + 1] < 250 || sample.data[i + 2] < 250) {
-            nonWhitePixels++;
-          }
-        }
-        console.log(`[pdfImporter] Page ${pageNum} render check: ${nonWhitePixels} non-white pixels in 100x100 sample (canvas: ${w}x${h})`);
-      }
-    }
+    } as any).promise;
 
     const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
 
-    if (pageNum <= 3) {
-      console.log(`[pdfImporter] Page ${pageNum} dataUrl length: ${dataUrl.length}, starts with: ${dataUrl.substring(0, 50)}`);
-    }
-
-    // Generate lightweight thumbnail for filmstrip (~120px)
+    // Lightweight thumbnail for filmstrip (~120px tall)
     const thumbCanvas = document.createElement('canvas');
     const thumbMax = 120;
     const tScale = Math.min(thumbMax / w, thumbMax / h);
@@ -107,12 +94,11 @@ export async function extractPdfPages(
     if (tCtx) {
       tCtx.drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
       thumbnailUrl = thumbCanvas.toDataURL('image/jpeg', 0.65);
-      // Release thumbnail canvas
       thumbCanvas.width = 0;
       thumbCanvas.height = 0;
     }
 
-    // Release main canvas memory
+    // Free canvas memory
     canvas.width = 0;
     canvas.height = 0;
 
@@ -127,6 +113,5 @@ export async function extractPdfPages(
     });
   }
 
-  console.log(`[pdfImporter] Extraction complete: ${pages.length} pages`);
   return pages;
 }
