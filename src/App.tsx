@@ -131,6 +131,17 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleUndo, handleRedo, isCropModalOpen, isCleanupModalOpen, pages.length]);
 
+  // Helper to load an HTMLImageElement asynchronously on demand
+  const loadImage = useCallback((src: string): Promise<HTMLImageElement> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Image load failed'));
+      img.src = src;
+    });
+  }, []);
+
   // Reprocess a single page on demand using Web Worker
   const reprocessPage = useCallback(
     async (
@@ -146,8 +157,13 @@ export default function App() {
       const paperSizeToUse = newPaperSize || page.paperSize || 'original';
 
       try {
+        let img = page.originalImage;
+        if (!img) {
+          img = await loadImage(page.originalDataUrl);
+        }
+
         const { processedCanvas, dataUrl, thumbnailUrl } = await processDocumentPage(
-          page.originalImage,
+          img,
           cornersToUse,
           settingsToUse,
           cleanupToUse,
@@ -159,6 +175,7 @@ export default function App() {
             p.id === page.id
               ? {
                   ...p,
+                  originalImage: img,
                   isEdited: true,
                   corners: cornersToUse,
                   settings: settingsToUse,
@@ -181,7 +198,7 @@ export default function App() {
         );
       }
     },
-    []
+    [loadImage]
   );
 
   // Debounced processor for fine slider tuning on active page
@@ -195,15 +212,20 @@ export default function App() {
     [reprocessPage]
   );
 
-  // Helper to load an HTMLImageElement asynchronously
-  const loadImage = (src: string): Promise<HTMLImageElement> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error('Image load failed'));
-      img.src = src;
-    });
+  // Open Crop Modal ensuring active page image is loaded
+  const handleOpenCropModal = async () => {
+    if (!activePage) return;
+    if (!activePage.originalImage) {
+      try {
+        const img = await loadImage(activePage.originalDataUrl);
+        setPages((prev) =>
+          prev.map((p) => (p.id === activePage.id ? { ...p, originalImage: img } : p))
+        );
+      } catch (e) {
+        console.warn('Failed to load image for crop modal:', e);
+      }
+    }
+    setIsCropModalOpen(true);
   };
 
   // Instant Document Ingestion: Loads all PDF pages and images as fast as possible without any heavy initial cleaning pass
@@ -248,7 +270,6 @@ export default function App() {
           // Convert all extracted pages into PageItems immediately with zero cleaning delay
           for (let pIdx = 0; pIdx < extractedPages.length; pIdx++) {
             const p = extractedPages[pIdx];
-            const img = await loadImage(p.dataUrl);
 
             const corners: Quadrilateral = {
               tl: { x: 0, y: 0 },
@@ -262,7 +283,7 @@ export default function App() {
             newItems.push({
               id: `page-${Date.now()}-${i}-${pIdx}-${Math.random().toString(36).substring(2, 6)}`,
               name: `${file.name.replace(/\.[^/.]+$/, '')} (p.${p.pageNumber})`,
-              originalImage: img,
+              originalImage: undefined, // Loaded on-demand when edited to prevent memory leaks!
               originalDataUrl: p.dataUrl,
               originalWidth: p.width,
               originalHeight: p.height,
@@ -605,9 +626,14 @@ export default function App() {
         const page = pages[i];
         if (page.id === activePage.id && page.processedDataUrl) continue;
 
+        let img = page.originalImage;
+        if (!img) {
+          img = await loadImage(page.originalDataUrl);
+        }
+
         const s = { ...targetSettings, rotation: page.settings.rotation };
         const { processedCanvas, dataUrl, thumbnailUrl } = await processDocumentPage(
-          page.originalImage,
+          img,
           page.corners,
           s,
           page.cleanupStrokes,
@@ -619,6 +645,7 @@ export default function App() {
             p.id === page.id
               ? {
                   ...p,
+                  originalImage: img,
                   processedCanvas,
                   processedDataUrl: dataUrl,
                   thumbnailUrl,
@@ -667,9 +694,13 @@ export default function App() {
   };
 
   // Auto detect corners
-  const handleAutoDetectCorners = () => {
+  const handleAutoDetectCorners = async () => {
     if (!activePage) return null;
-    return detectDocumentCorners(activePage.originalImage);
+    let img = activePage.originalImage;
+    if (!img) {
+      img = await loadImage(activePage.originalDataUrl);
+    }
+    return detectDocumentCorners(img);
   };
 
   // Rotate active page 90 degrees
@@ -774,7 +805,7 @@ export default function App() {
                 status={activePage.status}
                 pageIndex={activePageIndex}
                 totalPages={pages.length}
-                onOpenCrop={() => setIsCropModalOpen(true)}
+                onOpenCrop={handleOpenCropModal}
               />
             </main>
 
@@ -807,7 +838,7 @@ export default function App() {
               totalPages={pages.length}
               onOpenAdd={() => setIsAddMenuOpen(true)}
               onOpenReorder={() => setIsReorderModalOpen(true)}
-              onOpenCrop={() => setIsCropModalOpen(true)}
+              onOpenCrop={handleOpenCropModal}
               onRotate={handleRotateActivePage}
               onOpenFilters={() => setIsFiltersModalOpen(true)}
               onOpenCleanup={() => setIsCleanupModalOpen(true)}
@@ -905,7 +936,7 @@ export default function App() {
           isOpen={isCropModalOpen}
           onClose={() => setIsCropModalOpen(false)}
           onApplyCrop={handleApplyCrop}
-          image={activePage.originalImage}
+          image={activePage.originalImage || null}
           initialCorners={activePage.corners}
           onAutoDetect={handleAutoDetectCorners}
           onRotateSource={handleRotateActivePage}

@@ -49,7 +49,7 @@ export type PaperSize = 'original' | 'a4' | 'letter' | 'a5' | 'legal' | 'id_card
 export interface PageItem {
   id: string;
   name: string;
-  originalImage: HTMLImageElement;
+  originalImage?: HTMLImageElement;
   originalDataUrl: string;
   originalWidth: number;
   originalHeight: number;
