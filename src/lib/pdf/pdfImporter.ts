@@ -1,11 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
-
-// ────────────────────────────────────────────────────────────────
-// WORKER — Vite's ?url import emits the file and returns its URL.
-// This bundles the worker into dist/assets/ at build time.
-// Zero CDN. Zero network dependency. 100% offline-safe.
-// ────────────────────────────────────────────────────────────────
 import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+
+// Configure worker locally with Vite's ?url bundle import (100% offline, zero CDN)
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
 export interface ExtractedPdfPage {
@@ -19,12 +15,8 @@ export interface ExtractedPdfPage {
 }
 
 /**
- * Extracts all pages of a PDF file as image data URLs and lightweight thumbnails.
- *
- * Everything is local:
- *  - Worker: bundled via Vite ?url import
- *  - CMap files: served from /cmaps/ (public/ directory)
- *  - Standard fonts: served from /standard_fonts/ (public/ directory)
+ * Extracts all pages of a PDF file as crisp image data URLs and lightweight thumbnails.
+ * Fully bundled with local worker, cmaps, and fonts.
  */
 export async function extractPdfPages(
   file: File,
@@ -34,12 +26,9 @@ export async function extractPdfPages(
 
   const loadingTask = pdfjsLib.getDocument({
     data: new Uint8Array(arrayBuffer),
-    // Local paths — Vite serves public/ at root
     cMapUrl: '/cmaps/',
     cMapPacked: true,
     standardFontDataUrl: '/standard_fonts/',
-    // Disable worker-side font loading for maximum compatibility
-    useSystemFonts: false,
   });
 
   const pdf = await loadingTask.promise;
@@ -53,12 +42,12 @@ export async function extractPdfPages(
 
     const page = await pdf.getPage(pageNum);
 
-    // Original PDF dimensions in points (72pt = 1 inch)
+    // Exact original PDF dimensions in points (72pt = 1 inch)
     const baseViewport = page.getViewport({ scale: 1.0 });
     const pdfWidthPt = baseViewport.width;
     const pdfHeightPt = baseViewport.height;
 
-    // Render scale — cap at 2x to avoid OOM on huge PDFs
+    // Scale for rendering (max 1100px width) to keep performance instant and light
     const targetScale = Math.min(2.0, Math.max(1.0, 1100 / (baseViewport.width || 600)));
     const viewport = page.getViewport({ scale: targetScale });
 
@@ -68,22 +57,22 @@ export async function extractPdfPages(
     canvas.width = w;
     canvas.height = h;
 
-    // Fill white background first (PDFs can have transparent backgrounds)
     const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, w, h);
+    if (!ctx) {
+      continue;
     }
 
-    // pdfjs-dist v6 API: pass canvas directly
-    await page.render({
-      canvas: canvas,
+    // Standard PDF.js 4.x canvas rendering
+    const renderContext = {
+      canvasContext: ctx,
       viewport: viewport,
-    } as any).promise;
+    };
+
+    await page.render(renderContext).promise;
 
     const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
 
-    // Lightweight thumbnail for filmstrip (~120px tall)
+    // Lightweight thumbnail for filmstrip (~120px)
     const thumbCanvas = document.createElement('canvas');
     const thumbMax = 120;
     const tScale = Math.min(thumbMax / w, thumbMax / h);
@@ -98,7 +87,7 @@ export async function extractPdfPages(
       thumbCanvas.height = 0;
     }
 
-    // Free canvas memory
+    // Free main canvas memory
     canvas.width = 0;
     canvas.height = 0;
 
