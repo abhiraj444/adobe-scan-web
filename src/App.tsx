@@ -8,7 +8,7 @@ import {
   PaperSize
 } from './types';
 import { PRESET_CONFIGS } from './lib/cv/presets';
-import { detectDocumentCorners, getDefaultCorners } from './lib/cv/edgeDetection';
+import { detectDocumentCorners } from './lib/cv/edgeDetection';
 import { processDocumentPage } from './lib/cv/pipeline';
 import { extractPdfPages } from './lib/pdf/pdfImporter';
 
@@ -31,7 +31,7 @@ import {
   Upload, 
   Loader2, 
   Sparkles,
-  Plus
+  CheckCircle2
 } from 'lucide-react';
 
 interface LoadingState {
@@ -50,6 +50,9 @@ export default function App() {
 
   const [pages, setPages] = useState<PageItem[]>([]);
   const [activePageIndex, setActivePageIndex] = useState<number>(0);
+
+  // Toast banner for actions like "Applied to all pages"
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Undo / Redo history stack
   const [history, setHistory] = useState<PageItem[][]>([]);
@@ -74,8 +77,14 @@ export default function App() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isBatchProcessingRef = useRef(false);
 
   const activePage = pages[activePageIndex];
+
+  const showToast = useCallback((msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  }, []);
 
   const pushHistory = useCallback((currentPages: PageItem[]) => {
     setHistory((prev) => [...prev.slice(-20), currentPages]);
@@ -122,7 +131,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleUndo, handleRedo, isCropModalOpen, isCleanupModalOpen, pages.length]);
 
-  // Reprocess a page when settings/corners change
+  // Reprocess a single page on demand using Web Worker
   const reprocessPage = useCallback(
     async (
       page: PageItem,
@@ -134,7 +143,7 @@ export default function App() {
       const cornersToUse = newCorners || page.corners;
       const settingsToUse = newSettings || page.settings;
       const cleanupToUse = newCleanup !== undefined ? newCleanup : page.cleanupStrokes;
-      const paperSizeToUse = newPaperSize || page.paperSize;
+      const paperSizeToUse = newPaperSize || page.paperSize || 'original';
 
       try {
         const { processedCanvas, dataUrl, thumbnailUrl } = await processDocumentPage(
@@ -150,6 +159,7 @@ export default function App() {
             p.id === page.id
               ? {
                   ...p,
+                  isEdited: true,
                   corners: cornersToUse,
                   settings: settingsToUse,
                   cleanupStrokes: cleanupToUse,
@@ -174,7 +184,7 @@ export default function App() {
     []
   );
 
-  // Debounced processor for fast sliders
+  // Debounced processor for fine slider tuning on active page
   const triggerDebouncedProcess = useCallback(
     (page: PageItem, newSettings: FilterSettings) => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -185,66 +195,18 @@ export default function App() {
     [reprocessPage]
   );
 
-  // Helper to create and process an image item
-  const processSingleImageItem = async (
-    dataUrl: string,
-    name: string,
-    isPdf = false,
-    preset: PresetMode = 'auto_color'
-  ): Promise<PageItem> => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error('Image failed to load'));
-      img.src = dataUrl;
+  // Helper to load an HTMLImageElement asynchronously
+  const loadImage = (src: string): Promise<HTMLImageElement> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Image load failed'));
+      img.src = src;
     });
-
-    const w = img.naturalWidth || img.width;
-    const h = img.naturalHeight || img.height;
-
-    // For PDF: use exact rectangular bounds; for camera/photos: run edge detection
-    const corners: Quadrilateral = isPdf
-      ? {
-          tl: { x: 0, y: 0 },
-          tr: { x: w, y: 0 },
-          br: { x: w, y: h },
-          bl: { x: 0, y: h },
-        }
-      : detectDocumentCorners(img);
-
-    const defaultSettings: FilterSettings = { ...PRESET_CONFIGS[preset] };
-
-    const { processedCanvas, dataUrl: procUrl, thumbnailUrl } = await processDocumentPage(
-      img,
-      corners,
-      defaultSettings
-    );
-
-    return {
-      id: `page-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      name,
-      originalImage: img,
-      originalDataUrl: dataUrl,
-      originalWidth: w,
-      originalHeight: h,
-      corners,
-      autoCorners: corners,
-      settings: defaultSettings,
-      mode: preset,
-      cleanupStrokes: [],
-      paperSize: 'a4',
-      isPdfPage: isPdf,
-      sourceType: isPdf ? 'pdf' : 'image',
-      processedCanvas,
-      processedDataUrl: procUrl,
-      thumbnailUrl,
-      status: 'ready',
-    };
   };
 
-  // Handle uploaded files (PDF multi-page and Images)
+  // Instant Document Ingestion: Loads all PDF pages and images as fast as possible without any heavy initial cleaning pass
   const handleFilesSelected = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
 
@@ -253,8 +215,8 @@ export default function App() {
 
     setLoadingState({
       isLoading: true,
-      message: 'Reading documents...',
-      subMessage: 'Extracting pages & applying Adobe Scan enhancement pipeline',
+      message: 'Loading documents...',
+      subMessage: 'Opening pages instantly',
       current: 0,
       total: fileList.length,
     });
@@ -267,8 +229,8 @@ export default function App() {
         if (isPdf) {
           setLoadingState({
             isLoading: true,
-            message: `Importing PDF: ${file.name}`,
-            subMessage: 'Rendering all pages at high resolution...',
+            message: `Reading PDF: ${file.name}`,
+            subMessage: 'Extracting pages...',
             current: i + 1,
             total: fileList.length,
           });
@@ -283,29 +245,49 @@ export default function App() {
             });
           });
 
+          // Convert all extracted pages into PageItems immediately with zero cleaning delay
           for (let pIdx = 0; pIdx < extractedPages.length; pIdx++) {
-            const pageData = extractedPages[pIdx];
-            setLoadingState({
-              isLoading: true,
-              message: `Adobe Scan Whitening`,
-              subMessage: `Cleaning page ${pIdx + 1} of ${extractedPages.length}...`,
-              current: pIdx + 1,
-              total: extractedPages.length,
-            });
+            const p = extractedPages[pIdx];
+            const img = await loadImage(p.dataUrl);
 
-            const pageItem = await processSingleImageItem(
-              pageData.dataUrl,
-              `${file.name.replace(/\.[^/.]+$/, '')} (p.${pageData.pageNumber})`,
-              true,
-              'auto_color'
-            );
-            newItems.push(pageItem);
+            const corners: Quadrilateral = {
+              tl: { x: 0, y: 0 },
+              tr: { x: p.width, y: 0 },
+              br: { x: p.width, y: p.height },
+              bl: { x: 0, y: p.height },
+            };
+
+            const defaultSettings: FilterSettings = { ...PRESET_CONFIGS.color_doc };
+
+            newItems.push({
+              id: `page-${Date.now()}-${i}-${pIdx}-${Math.random().toString(36).substring(2, 6)}`,
+              name: `${file.name.replace(/\.[^/.]+$/, '')} (p.${p.pageNumber})`,
+              originalImage: img,
+              originalDataUrl: p.dataUrl,
+              originalWidth: p.width,
+              originalHeight: p.height,
+              pdfWidthPt: p.pdfWidthPt,
+              pdfHeightPt: p.pdfHeightPt,
+              isEdited: false,
+              corners,
+              autoCorners: corners,
+              settings: defaultSettings,
+              mode: 'color_doc',
+              cleanupStrokes: [],
+              paperSize: 'original',
+              isPdfPage: true,
+              sourceType: 'pdf',
+              processedCanvas: undefined,
+              processedDataUrl: p.dataUrl, // Raw image displayed instantly!
+              thumbnailUrl: p.thumbnailUrl,
+              status: 'ready',
+            });
           }
         } else if (file.type.startsWith('image/')) {
           setLoadingState({
             isLoading: true,
-            message: `Cleaning Photo: ${file.name}`,
-            subMessage: 'Detecting boundaries & normalizing illumination...',
+            message: `Loading Image: ${file.name}`,
+            subMessage: 'Opening photo...',
             current: i + 1,
             total: fileList.length,
           });
@@ -317,13 +299,40 @@ export default function App() {
             reader.readAsDataURL(file);
           });
 
-          const pageItem = await processSingleImageItem(
-            dataUrl,
-            file.name.replace(/\.[^/.]+$/, ''),
-            false,
-            'magic_color'
-          );
-          newItems.push(pageItem);
+          const img = await loadImage(dataUrl);
+          const w = img.naturalWidth || img.width;
+          const h = img.naturalHeight || img.height;
+
+          const corners: Quadrilateral = {
+            tl: { x: 0, y: 0 },
+            tr: { x: w, y: 0 },
+            br: { x: w, y: h },
+            bl: { x: 0, y: h },
+          };
+
+          const defaultSettings: FilterSettings = { ...PRESET_CONFIGS.color_doc };
+
+          newItems.push({
+            id: `page-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+            name: file.name.replace(/\.[^/.]+$/, ''),
+            originalImage: img,
+            originalDataUrl: dataUrl,
+            originalWidth: w,
+            originalHeight: h,
+            isEdited: false,
+            corners,
+            autoCorners: corners,
+            settings: defaultSettings,
+            mode: 'color_doc',
+            cleanupStrokes: [],
+            paperSize: 'original',
+            isPdfPage: false,
+            sourceType: 'image',
+            processedCanvas: undefined,
+            processedDataUrl: dataUrl, // Raw image displayed instantly!
+            thumbnailUrl: dataUrl,
+            status: 'ready',
+          });
         }
       }
 
@@ -346,18 +355,34 @@ export default function App() {
 
   // Add camera snapshot
   const handleCameraCapture = async (dataUrl: string) => {
-    setLoadingState({
-      isLoading: true,
-      message: 'Processing camera scan...',
-      subMessage: 'Applying boundary detection & illumination normalization',
-    });
     try {
-      const pageItem = await processSingleImageItem(
-        dataUrl,
-        `Camera Scan ${pages.length + 1}`,
-        false,
-        'magic_color'
-      );
+      const img = await loadImage(dataUrl);
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      const autoCorners = detectDocumentCorners(img);
+
+      const pageItem: PageItem = {
+        id: `page-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        name: `Camera Scan ${pages.length + 1}`,
+        originalImage: img,
+        originalDataUrl: dataUrl,
+        originalWidth: w,
+        originalHeight: h,
+        isEdited: false,
+        corners: autoCorners,
+        autoCorners,
+        settings: { ...PRESET_CONFIGS.color_doc },
+        mode: 'color_doc',
+        cleanupStrokes: [],
+        paperSize: 'original',
+        isPdfPage: false,
+        sourceType: 'camera',
+        processedCanvas: undefined,
+        processedDataUrl: dataUrl,
+        thumbnailUrl: dataUrl,
+        status: 'ready',
+      };
+
       pushHistory(pages);
       setPages((prev) => {
         const next = [...prev, pageItem];
@@ -366,8 +391,6 @@ export default function App() {
       });
     } catch (err: any) {
       console.error('Error processing camera capture:', err);
-    } finally {
-      setLoadingState({ isLoading: false, message: '' });
     }
   };
 
@@ -376,7 +399,7 @@ export default function App() {
     setLoadingState({
       isLoading: true,
       message: 'Generating sample document...',
-      subMessage: 'Creating authentic document with seals and handwritten notes',
+      subMessage: 'Creating sample page with seals and notes',
     });
 
     try {
@@ -386,7 +409,7 @@ export default function App() {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Authentic warm paper texture with subtle gradient shadow
+      // Warm paper texture
       const grad = ctx.createLinearGradient(0, 0, 1200, 1600);
       grad.addColorStop(0, '#fbf8ef');
       grad.addColorStop(0.5, '#f4ecd8');
@@ -394,14 +417,14 @@ export default function App() {
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, 1200, 1600);
 
-      // Shadow vignette on right & bottom
+      // Shadow vignette
       const shadowGrad = ctx.createRadialGradient(400, 400, 100, 600, 800, 900);
       shadowGrad.addColorStop(0, 'rgba(0,0,0,0)');
       shadowGrad.addColorStop(1, 'rgba(60,40,10,0.22)');
       ctx.fillStyle = shadowGrad;
       ctx.fillRect(0, 0, 1200, 1600);
 
-      // Header logo / title
+      // Header title
       ctx.fillStyle = '#1e293b';
       ctx.font = 'bold 36px serif';
       ctx.fillText('OFFICIAL CERTIFICATE OF COMPLETION', 120, 180);
@@ -410,7 +433,6 @@ export default function App() {
       ctx.fillStyle = '#475569';
       ctx.fillText('Adobe Scan Advanced Document Processing System', 120, 230);
 
-      // Horizontal rule
       ctx.strokeStyle = '#94a3b8';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -418,7 +440,6 @@ export default function App() {
       ctx.lineTo(1080, 260);
       ctx.stroke();
 
-      // Body text lines
       ctx.font = '22px serif';
       ctx.fillStyle = '#0f172a';
       const textLines = [
@@ -426,13 +447,12 @@ export default function App() {
         'is functioning with automatic boundary detection, perspective transformation,',
         'shadow removal via illumination division normalization, and Sauvola thresholding.',
         '',
-        '• Multi-page batch document ingestion (PDF, Images, and Camera)',
-        '• Adobe Scan 8-point boundary crop with 2.5x circular loupe magnification',
-        '• Dedicated Web Worker non-blocking image processing pipeline',
-        '• Retouch & Eraser brush tool with background inpainting',
-        '• Standard paper sizing (A4, US Letter, ID Card, Legal)',
+        '• Instant PDF & document showcase with zero waiting time on upload',
+        '• Per-page interactive tuning with real-time Web Worker filters',
+        '• 1-Click "Apply to All Pages" batch enhancement',
+        '• Exact original document size preservation on PDF export',
         '',
-        'Date: August 27, 2026                 Reference No: ADOBE-SCAN-9941',
+        'Date: September 02, 2026                 Reference No: ADOBE-SCAN-2026',
       ];
 
       let yPos = 340;
@@ -441,7 +461,7 @@ export default function App() {
         yPos += 45;
       }
 
-      // Red Official Seal / Stamp (Vibrant Color)
+      // Red Seal
       ctx.save();
       ctx.translate(850, 1100);
       ctx.rotate(-0.15);
@@ -464,7 +484,7 @@ export default function App() {
       ctx.fillText('★ ADOBE SCAN ★', 0, 25);
       ctx.restore();
 
-      // Blue Pen Signature
+      // Signature
       ctx.save();
       ctx.strokeStyle = '#1d4ed8';
       ctx.lineWidth = 4;
@@ -481,22 +501,51 @@ export default function App() {
       ctx.restore();
 
       const sampleDataUrl = canvas.toDataURL('image/jpeg', 0.92);
-      const pageItem = await processSingleImageItem(
-        sampleDataUrl,
-        'Sample Official Document',
-        false,
-        'magic_color'
-      );
+      const img = await loadImage(sampleDataUrl);
+
+      const samplePage: PageItem = {
+        id: `sample-${Date.now()}`,
+        name: 'Sample Official Document',
+        originalImage: img,
+        originalDataUrl: sampleDataUrl,
+        originalWidth: 1200,
+        originalHeight: 1600,
+        pdfWidthPt: 595.28,
+        pdfHeightPt: 841.89,
+        isEdited: false,
+        corners: {
+          tl: { x: 0, y: 0 },
+          tr: { x: 1200, y: 0 },
+          br: { x: 1200, y: 1600 },
+          bl: { x: 0, y: 1600 },
+        },
+        autoCorners: {
+          tl: { x: 0, y: 0 },
+          tr: { x: 1200, y: 0 },
+          br: { x: 1200, y: 1600 },
+          bl: { x: 0, y: 1600 },
+        },
+        settings: { ...PRESET_CONFIGS.color_doc },
+        mode: 'color_doc',
+        cleanupStrokes: [],
+        paperSize: 'original',
+        isPdfPage: true,
+        sourceType: 'pdf',
+        processedCanvas: undefined,
+        processedDataUrl: sampleDataUrl,
+        thumbnailUrl: sampleDataUrl,
+        status: 'ready',
+      };
 
       pushHistory(pages);
-      setPages([pageItem]);
+      setPages([samplePage]);
       setActivePageIndex(0);
     } finally {
       setLoadingState({ isLoading: false, message: '' });
     }
   };
 
-  // Preset pill selection
+  // Preset pill selection - updates ONLY the active page
   const handleSelectPreset = (newMode: PresetMode) => {
     if (!activePage) return;
     pushHistory(pages);
@@ -507,77 +556,102 @@ export default function App() {
 
     setPages((prev) =>
       prev.map((p) =>
-        p.id === activePage.id ? { ...p, mode: newMode, settings: newSettings } : p
+        p.id === activePage.id ? { ...p, mode: newMode, settings: newSettings, isEdited: true } : p
       )
     );
     reprocessPage(activePage, activePage.corners, newSettings, activePage.cleanupStrokes, activePage.paperSize);
   };
 
-  // Sliders update from Adjust Sheet
+  // Sliders update from Adjust Sheet - updates ONLY the active page
   const handleChangeAdjustSettings = (newSettings: FilterSettings) => {
     if (!activePage) return;
     setPages((prev) =>
       prev.map((p) =>
-        p.id === activePage.id ? { ...p, settings: newSettings, mode: 'custom' } : p
+        p.id === activePage.id ? { ...p, settings: newSettings, mode: 'custom', isEdited: true } : p
       )
     );
     triggerDebouncedProcess(activePage, newSettings);
   };
 
-  // Apply settings across ALL pages
-  const handleApplyToAllPages = async (settings: FilterSettings, mode: PresetMode) => {
-    setLoadingState({
-      isLoading: true,
-      message: 'Applying settings to all pages...',
-      subMessage: `Updating ${pages.length} document pages in background`,
-    });
+  // APPLY TO ALL PAGES: Instantly propagates the active page's filter & settings to each page, and processes them in the background
+  const handleApplyToAllPages = async (settingsToApply?: FilterSettings, modeToApply?: PresetMode) => {
+    if (!activePage || pages.length <= 1) return;
+
+    const targetSettings = settingsToApply || activePage.settings;
+    const targetMode = modeToApply || activePage.mode;
+    const targetPaperSize = activePage.paperSize || 'original';
+
+    pushHistory(pages);
+
+    // 1. Instantly update all pages in state so UI & metadata reflect immediately
+    setPages((prev) =>
+      prev.map((p) => ({
+        ...p,
+        isEdited: true,
+        mode: targetMode,
+        paperSize: targetPaperSize,
+        settings: { ...targetSettings, rotation: p.settings.rotation },
+      }))
+    );
+
+    showToast(`Applied "${targetMode.replace('_', ' ').toUpperCase()}" settings to all ${pages.length} pages!`);
+
+    // 2. Run background processing on the other pages using the Web Worker without blocking the UI
+    if (isBatchProcessingRef.current) return;
+    isBatchProcessingRef.current = true;
 
     try {
-      pushHistory(pages);
-      const updatedPages = [...pages];
-      for (let i = 0; i < updatedPages.length; i++) {
-        const p = updatedPages[i];
-        const s = { ...settings, rotation: p.settings.rotation };
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i];
+        if (page.id === activePage.id && page.processedDataUrl) continue;
+
+        const s = { ...targetSettings, rotation: page.settings.rotation };
         const { processedCanvas, dataUrl, thumbnailUrl } = await processDocumentPage(
-          p.originalImage,
-          p.corners,
+          page.originalImage,
+          page.corners,
           s,
-          p.cleanupStrokes,
-          p.paperSize
+          page.cleanupStrokes,
+          targetPaperSize
         );
-        updatedPages[i] = {
-          ...p,
-          settings: s,
-          mode,
-          processedCanvas,
-          processedDataUrl: dataUrl,
-          thumbnailUrl,
-          status: 'ready',
-        };
+
+        setPages((prev) =>
+          prev.map((p) =>
+            p.id === page.id
+              ? {
+                  ...p,
+                  processedCanvas,
+                  processedDataUrl: dataUrl,
+                  thumbnailUrl,
+                  status: 'ready',
+                }
+              : p
+          )
+        );
       }
-      setPages(updatedPages);
+    } catch (e) {
+      console.warn('Batch background processing encountered an issue:', e);
     } finally {
-      setLoadingState({ isLoading: false, message: '' });
+      isBatchProcessingRef.current = false;
     }
   };
 
-  // Apply Crop corners from Crop Modal
+  // Apply Crop corners from Crop Modal (Active page only)
   const handleApplyCrop = (newCorners: Quadrilateral) => {
     if (!activePage) return;
     setIsCropModalOpen(false);
     pushHistory(pages);
     setPages((prev) =>
-      prev.map((p) => (p.id === activePage.id ? { ...p, corners: newCorners } : p))
+      prev.map((p) => (p.id === activePage.id ? { ...p, corners: newCorners, isEdited: true } : p))
     );
     reprocessPage(activePage, newCorners, activePage.settings, activePage.cleanupStrokes, activePage.paperSize);
   };
 
-  // Apply Clean Up Strokes
+  // Apply Clean Up Strokes (Active page only)
   const handleApplyCleanup = (strokes: CleanupStroke[]) => {
     if (!activePage) return;
     pushHistory(pages);
     setPages((prev) =>
-      prev.map((p) => (p.id === activePage.id ? { ...p, cleanupStrokes: strokes } : p))
+      prev.map((p) => (p.id === activePage.id ? { ...p, cleanupStrokes: strokes, isEdited: true } : p))
     );
     reprocessPage(activePage, activePage.corners, activePage.settings, strokes, activePage.paperSize);
   };
@@ -587,7 +661,7 @@ export default function App() {
     if (!activePage) return;
     pushHistory(pages);
     setPages((prev) =>
-      prev.map((p) => (p.id === activePage.id ? { ...p, paperSize } : p))
+      prev.map((p) => (p.id === activePage.id ? { ...p, paperSize, isEdited: true } : p))
     );
     reprocessPage(activePage, activePage.corners, activePage.settings, activePage.cleanupStrokes, paperSize);
   };
@@ -607,7 +681,7 @@ export default function App() {
 
     setPages((prev) =>
       prev.map((item, idx) =>
-        idx === activePageIndex ? { ...item, settings: newSettings } : item
+        idx === activePageIndex ? { ...item, settings: newSettings, isEdited: true } : item
       )
     );
     reprocessPage(activePage, activePage.corners, newSettings, activePage.cleanupStrokes, activePage.paperSize);
@@ -649,6 +723,16 @@ export default function App() {
         onChange={(e) => e.target.files && handleFilesSelected(e.target.files)}
       />
 
+      {/* Toast Notification Banner */}
+      {toastMessage && (
+        <div className="fixed top-14 left-1/2 transform -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top-4 duration-200">
+          <div className="px-4 py-2 bg-emerald-600/95 border border-emerald-400/40 text-white text-xs font-bold rounded-full shadow-2xl flex items-center gap-2 backdrop-blur-md">
+            <CheckCircle2 className="w-4 h-4 text-white" />
+            <span>{toastMessage}</span>
+          </div>
+        </div>
+      )}
+
       {/* Adobe Scan Top Navbar */}
       <AdobeNavbar
         documentTitle={documentTitle}
@@ -686,7 +770,7 @@ export default function App() {
             <main className="flex-1 relative overflow-hidden bg-[#0d0d11]">
               <AdobeDocumentStage
                 originalDataUrl={activePage.originalDataUrl}
-                processedDataUrl={activePage.processedDataUrl}
+                processedDataUrl={activePage.isEdited && activePage.processedDataUrl ? activePage.processedDataUrl : activePage.originalDataUrl}
                 status={activePage.status}
                 pageIndex={activePageIndex}
                 totalPages={pages.length}
@@ -708,7 +792,7 @@ export default function App() {
                   const nextRot = (p.settings.rotation + 90) % 360;
                   const newSettings = { ...p.settings, rotation: nextRot };
                   setPages((prev) =>
-                    prev.map((item, i) => (i === idx ? { ...item, settings: newSettings } : item))
+                    prev.map((item, i) => (i === idx ? { ...item, settings: newSettings, isEdited: true } : item))
                   );
                   reprocessPage(p, p.corners, newSettings, p.cleanupStrokes, p.paperSize);
                 }}
@@ -729,6 +813,7 @@ export default function App() {
               onOpenCleanup={() => setIsCleanupModalOpen(true)}
               onOpenAdjust={() => setIsAdjustModalOpen(true)}
               onOpenResize={() => setIsResizeModalOpen(true)}
+              onApplyToAll={() => handleApplyToAllPages()}
               onDelete={() => handleDeletePage(activePageIndex)}
               onPrevPage={() => setActivePageIndex((p) => Math.max(0, p - 1))}
               onNextPage={() => setActivePageIndex((p) => Math.min(pages.length - 1, p + 1))}
@@ -834,7 +919,7 @@ export default function App() {
           onClose={() => setIsFiltersModalOpen(false)}
           currentMode={activePage.mode}
           onSelectPreset={handleSelectPreset}
-          onApplyToAllPages={handleApplyToAllPages}
+          onApplyToAllPages={(settings, mode) => handleApplyToAllPages(settings, mode)}
           currentSettings={activePage.settings}
           pageIndex={activePageIndex}
           totalPages={pages.length}
@@ -851,7 +936,7 @@ export default function App() {
           pageIndex={activePageIndex}
           totalPages={pages.length}
           onChangeSettings={handleChangeAdjustSettings}
-          onApplyToAllPages={handleApplyToAllPages}
+          onApplyToAllPages={(settings, mode) => handleApplyToAllPages(settings, mode)}
         />
       )}
 
@@ -871,7 +956,7 @@ export default function App() {
         <AdobeResizeModal
           isOpen={isResizeModalOpen}
           onClose={() => setIsResizeModalOpen(false)}
-          currentSize={activePage.paperSize || 'a4'}
+          currentSize={activePage.paperSize || 'original'}
           onSelectSize={handleApplyPaperSize}
           pageIndex={activePageIndex}
           totalPages={pages.length}
@@ -894,7 +979,7 @@ export default function App() {
           const nextRot = (p.settings.rotation + 90) % 360;
           const newSettings = { ...p.settings, rotation: nextRot };
           setPages((prev) =>
-            prev.map((item, i) => (i === idx ? { ...item, settings: newSettings } : item))
+            prev.map((item, i) => (i === idx ? { ...item, settings: newSettings, isEdited: true } : item))
           );
           reprocessPage(p, p.corners, newSettings, p.cleanupStrokes, p.paperSize);
         }}

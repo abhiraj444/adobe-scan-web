@@ -10,7 +10,8 @@ import {
   Maximize, 
   Trash2,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  CopyCheck
 } from 'lucide-react';
 import { PageItem } from '../types';
 
@@ -26,6 +27,7 @@ interface AdobeBottomToolbarProps {
   onOpenCleanup: () => void;
   onOpenAdjust: () => void;
   onOpenResize: () => void;
+  onApplyToAll?: () => void;
   onDelete: () => void;
   onPrevPage: () => void;
   onNextPage: () => void;
@@ -43,6 +45,7 @@ export const AdobeBottomToolbar: React.FC<AdobeBottomToolbarProps> = ({
   onOpenCleanup,
   onOpenAdjust,
   onOpenResize,
+  onApplyToAll,
   onDelete,
   onPrevPage,
   onNextPage,
@@ -54,7 +57,7 @@ export const AdobeBottomToolbar: React.FC<AdobeBottomToolbarProps> = ({
         {/* 1. Add Page */}
         <button
           onClick={onOpenAdd}
-          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer"
+          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer shrink-0"
           title="Add another photo or page"
         >
           <div className="w-8 h-8 rounded-full bg-[#1e1e24] flex items-center justify-center border border-zinc-700/60 text-emerald-400">
@@ -66,7 +69,7 @@ export const AdobeBottomToolbar: React.FC<AdobeBottomToolbarProps> = ({
         {/* 2. Reorder */}
         <button
           onClick={onOpenReorder}
-          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer"
+          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer shrink-0"
           title="Reorder and manage pages"
         >
           <div className="w-8 h-8 rounded-full bg-[#1e1e24] flex items-center justify-center border border-zinc-700/60 text-blue-400">
@@ -78,7 +81,7 @@ export const AdobeBottomToolbar: React.FC<AdobeBottomToolbarProps> = ({
         {/* 3. Crop */}
         <button
           onClick={onOpenCrop}
-          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer"
+          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer shrink-0"
           title="Adjust document borders & perspective"
         >
           <div className="w-8 h-8 rounded-full bg-[#1e1e24] flex items-center justify-center border border-zinc-700/60 text-sky-400">
@@ -90,7 +93,7 @@ export const AdobeBottomToolbar: React.FC<AdobeBottomToolbarProps> = ({
         {/* 4. Rotate */}
         <button
           onClick={onRotate}
-          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer"
+          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer shrink-0"
           title="Rotate page 90° clockwise"
         >
           <div className="w-8 h-8 rounded-full bg-[#1e1e24] flex items-center justify-center border border-zinc-700/60 text-indigo-400">
@@ -102,7 +105,7 @@ export const AdobeBottomToolbar: React.FC<AdobeBottomToolbarProps> = ({
         {/* 5. Filters (Adobe Color Mode Presets) */}
         <button
           onClick={onOpenFilters}
-          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer"
+          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer shrink-0"
           title="Choose Color, Magic Color, Whiteboard, or B&W"
         >
           <div className="w-8 h-8 rounded-full bg-[#1e1e24] flex items-center justify-center border border-zinc-700/60 text-purple-400">
@@ -114,7 +117,7 @@ export const AdobeBottomToolbar: React.FC<AdobeBottomToolbarProps> = ({
         {/* 6. Clean Up (Retouch & Eraser Brush) */}
         <button
           onClick={onOpenCleanup}
-          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer"
+          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer shrink-0"
           title="Erase unwanted spots, holes, and finger marks"
         >
           <div className="w-8 h-8 rounded-full bg-[#1e1e24] flex items-center justify-center border border-zinc-700/60 text-pink-400">
@@ -126,7 +129,7 @@ export const AdobeBottomToolbar: React.FC<AdobeBottomToolbarProps> = ({
         {/* 7. Adjust (Fine Tuning Sliders) */}
         <button
           onClick={onOpenAdjust}
-          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer"
+          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer shrink-0"
           title="Brightness, contrast, sharpness & ink tuning"
         >
           <div className="w-8 h-8 rounded-full bg-[#1e1e24] flex items-center justify-center border border-zinc-700/60 text-amber-400">
@@ -135,10 +138,24 @@ export const AdobeBottomToolbar: React.FC<AdobeBottomToolbarProps> = ({
           <span className="text-[10px] font-medium tracking-tight">Adjust</span>
         </button>
 
-        {/* 8. Resize (Paper Standard Format) */}
+        {/* 8. Apply to All Pages (Prominent Quick Action) */}
+        {totalPages > 1 && onApplyToAll && (
+          <button
+            onClick={onApplyToAll}
+            className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-blue-300 hover:text-white hover:bg-[#1473E6]/20 active:scale-95 transition-all min-w-[62px] cursor-pointer shrink-0 ring-1 ring-[#1473E6]/30 bg-[#1473E6]/10"
+            title="Apply current page's edits & filters to all pages in this document"
+          >
+            <div className="w-8 h-8 rounded-full bg-[#1473E6]/30 flex items-center justify-center border border-[#1473E6] text-white">
+              <CopyCheck className="w-4 h-4" />
+            </div>
+            <span className="text-[10px] font-bold tracking-tight text-blue-200">Apply All</span>
+          </button>
+        )}
+
+        {/* 9. Resize (Paper Standard Format) */}
         <button
           onClick={onOpenResize}
-          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer"
+          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer shrink-0"
           title="Set paper standard (A4, Letter, ID Card)"
         >
           <div className="w-8 h-8 rounded-full bg-[#1e1e24] flex items-center justify-center border border-zinc-700/60 text-teal-400">
@@ -147,11 +164,11 @@ export const AdobeBottomToolbar: React.FC<AdobeBottomToolbarProps> = ({
           <span className="text-[10px] font-medium tracking-tight">Resize</span>
         </button>
 
-        {/* 9. Delete Page */}
+        {/* 10. Delete Page */}
         {totalPages > 1 && (
           <button
             onClick={onDelete}
-            className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-400 hover:text-rose-400 hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer"
+            className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-400 hover:text-rose-400 hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer shrink-0"
             title="Delete current page"
           >
             <div className="w-8 h-8 rounded-full bg-[#1e1e24] flex items-center justify-center border border-zinc-700/60 text-rose-400">

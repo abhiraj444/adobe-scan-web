@@ -53,6 +53,9 @@ export interface PageItem {
   originalDataUrl: string;
   originalWidth: number;
   originalHeight: number;
+  pdfWidthPt?: number;
+  pdfHeightPt?: number;
+  isEdited?: boolean;
   corners: Quadrilateral;
   autoCorners: Quadrilateral;
   settings: FilterSettings;

@@ -31,11 +31,11 @@ export const AdobeExportModal: React.FC<AdobeExportModalProps> = ({
 }) => {
   const [options, setOptions] = useState<ExportOptions>({
     format: 'pdf',
-    pageSize: 'a4',
-    orientation: 'portrait',
+    pageSize: 'original', // Default to original document dimensions as requested!
+    orientation: 'auto',
     dpi: 300,
     quality: 0.92,
-    marginMm: 5,
+    marginMm: 0,
     fileName: documentTitle || 'Adobe_Scan_Document',
   });
 
@@ -45,11 +45,12 @@ export const AdobeExportModal: React.FC<AdobeExportModalProps> = ({
   if (!isOpen) return null;
 
   const handleExportPDF = async () => {
+    if (pages.length === 0) return;
     setIsExporting(true);
     setExportProgress(10);
 
     try {
-      const pageDimensions: Record<string, [number, number]> = {
+      const pageDimensionsMm: Record<string, [number, number]> = {
         a4: [210, 297],
         a5: [148, 210],
         letter: [215.9, 279.4],
@@ -58,20 +59,22 @@ export const AdobeExportModal: React.FC<AdobeExportModalProps> = ({
         business_card: [88.9, 50.8],
       };
 
-      const isLandscape = options.orientation === 'landscape';
       let doc: jsPDF;
 
       if (options.pageSize === 'original') {
+        // Page 1 initial document creation in Points
         const firstPage = pages[0];
-        const w = firstPage.processedCanvas?.width || 800;
-        const h = firstPage.processedCanvas?.height || 1100;
+        const p1W = firstPage.pdfWidthPt || Math.round((firstPage.processedCanvas?.width || firstPage.originalWidth) * 72 / 150);
+        const p1H = firstPage.pdfHeightPt || Math.round((firstPage.processedCanvas?.height || firstPage.originalHeight) * 72 / 150);
+
         doc = new jsPDF({
-          orientation: w > h ? 'landscape' : 'portrait',
+          orientation: p1W > p1H ? 'landscape' : 'portrait',
           unit: 'pt',
-          format: [w, h],
+          format: [p1W, p1H],
         });
       } else {
-        const baseDims = pageDimensions[options.pageSize] || pageDimensions.a4;
+        const baseDims = pageDimensionsMm[options.pageSize] || pageDimensionsMm.a4;
+        const isLandscape = options.orientation === 'landscape';
         const [pw, ph] = isLandscape ? [baseDims[1], baseDims[0]] : baseDims;
         doc = new jsPDF({
           orientation: isLandscape ? 'landscape' : 'portrait',
@@ -82,18 +85,27 @@ export const AdobeExportModal: React.FC<AdobeExportModalProps> = ({
 
       for (let i = 0; i < pages.length; i++) {
         const page = pages[i];
-        if (i > 0) {
-          doc.addPage();
-        }
-
-        const dataUrl = page.processedDataUrl || page.originalDataUrl;
-        const canvas = page.processedCanvas;
-        const imgW = canvas?.width || page.originalWidth || 800;
-        const imgH = canvas?.height || page.originalHeight || 1100;
+        const dataUrl = (page.isEdited && page.processedDataUrl) ? page.processedDataUrl : page.originalDataUrl;
 
         if (options.pageSize === 'original') {
-          doc.addImage(dataUrl, 'JPEG', 0, 0, imgW, imgH);
+          // Exact original points size per page
+          const pW = page.pdfWidthPt || Math.round((page.processedCanvas?.width || page.originalWidth) * 72 / 150);
+          const pH = page.pdfHeightPt || Math.round((page.processedCanvas?.height || page.originalHeight) * 72 / 150);
+
+          if (i > 0) {
+            doc.addPage([pW, pH], pW > pH ? 'landscape' : 'portrait');
+          }
+
+          doc.addImage(dataUrl, 'JPEG', 0, 0, pW, pH, undefined, 'FAST');
         } else {
+          // Standard paper layout with margin scaling
+          if (i > 0) {
+            const baseDims = pageDimensionsMm[options.pageSize] || pageDimensionsMm.a4;
+            const isLandscape = options.orientation === 'landscape' || (options.orientation === 'auto' && page.originalWidth > page.originalHeight);
+            const [pw, ph] = isLandscape ? [baseDims[1], baseDims[0]] : baseDims;
+            doc.addPage([pw, ph], isLandscape ? 'landscape' : 'portrait');
+          }
+
           const pageWidthMm = doc.internal.pageSize.getWidth();
           const pageHeightMm = doc.internal.pageSize.getHeight();
           const margin = options.marginMm;
@@ -101,6 +113,8 @@ export const AdobeExportModal: React.FC<AdobeExportModalProps> = ({
           const usableW = pageWidthMm - margin * 2;
           const usableH = pageHeightMm - margin * 2;
 
+          const imgW = page.processedCanvas?.width || page.originalWidth;
+          const imgH = page.processedCanvas?.height || page.originalHeight;
           const imgAspect = imgW / imgH;
           const usableAspect = usableW / usableH;
 
@@ -118,7 +132,7 @@ export const AdobeExportModal: React.FC<AdobeExportModalProps> = ({
           const posX = margin + (usableW - targetW) / 2;
           const posY = margin + (usableH - targetH) / 2;
 
-          doc.addImage(dataUrl, 'JPEG', posX, posY, targetW, targetH);
+          doc.addImage(dataUrl, 'JPEG', posX, posY, targetW, targetH, undefined, 'FAST');
         }
 
         setExportProgress(Math.round(((i + 1) / pages.length) * 90));
@@ -156,7 +170,7 @@ export const AdobeExportModal: React.FC<AdobeExportModalProps> = ({
   const handleDownloadAllImages = () => {
     pages.forEach((p, idx) => {
       const link = document.createElement('a');
-      link.href = p.processedDataUrl || p.originalDataUrl;
+      link.href = (p.isEdited && p.processedDataUrl) ? p.processedDataUrl : p.originalDataUrl;
       link.download = `${documentTitle || 'Adobe_Scan'}_Page_${idx + 1}.jpg`;
       document.body.appendChild(link);
       link.click();
@@ -183,7 +197,7 @@ export const AdobeExportModal: React.FC<AdobeExportModalProps> = ({
           ${pages
             .map(
               (p) =>
-                `<div class="page"><img src="${p.processedDataUrl || p.originalDataUrl}" /></div>`
+                `<div class="page"><img src="${(p.isEdited && p.processedDataUrl) ? p.processedDataUrl : p.originalDataUrl}" /></div>`
             )
             .join('')}
           <script>
@@ -207,8 +221,8 @@ export const AdobeExportModal: React.FC<AdobeExportModalProps> = ({
               <FileCheck className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">Save Adobe Scan PDF</h3>
-              <p className="text-xs text-zinc-400">{pages.length} clean pages ready for export</p>
+              <h3 className="text-base font-bold text-white">Save PDF Document</h3>
+              <p className="text-xs text-zinc-400">{pages.length} pages • Original size & quality</p>
             </div>
           </div>
 
@@ -239,7 +253,7 @@ export const AdobeExportModal: React.FC<AdobeExportModalProps> = ({
                 <FileText className="w-5 h-5 text-red-400" />
                 <div>
                   <div className="text-xs font-bold">Multi-Page PDF</div>
-                  <div className="text-[10px] text-zinc-400">High-resolution vectorized PDF</div>
+                  <div className="text-[10px] text-zinc-400">Exact original dimensions & vector PDF</div>
                 </div>
               </button>
 
@@ -265,14 +279,14 @@ export const AdobeExportModal: React.FC<AdobeExportModalProps> = ({
             <div className="space-y-4 pt-3 border-t border-zinc-800">
               <div>
                 <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2 block">
-                  Paper Standard
+                  Paper Size Dimension
                 </label>
                 <div className="grid grid-cols-4 gap-2">
                   {[
+                    { id: 'original', label: 'Original Size' },
                     { id: 'a4', label: 'A4' },
                     { id: 'letter', label: 'US Letter' },
                     { id: 'a5', label: 'A5' },
-                    { id: 'original', label: 'Auto Fit' },
                   ].map((p) => (
                     <button
                       key={p.id}
@@ -289,36 +303,39 @@ export const AdobeExportModal: React.FC<AdobeExportModalProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1.5 block">
-                    Orientation
-                  </label>
-                  <select
-                    value={options.orientation}
-                    onChange={(e) => setOptions({ ...options, orientation: e.target.value as any })}
-                    className="w-full bg-[#222226] border border-zinc-700 rounded-xl px-3 py-2 text-xs font-medium text-zinc-200 outline-none focus:border-[#1473E6]"
-                  >
-                    <option value="portrait">Portrait</option>
-                    <option value="landscape">Landscape</option>
-                  </select>
-                </div>
+              {options.pageSize !== 'original' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1.5 block">
+                      Orientation
+                    </label>
+                    <select
+                      value={options.orientation}
+                      onChange={(e) => setOptions({ ...options, orientation: e.target.value as any })}
+                      className="w-full bg-[#222226] border border-zinc-700 rounded-xl px-3 py-2 text-xs font-medium text-zinc-200 outline-none focus:border-[#1473E6]"
+                    >
+                      <option value="auto">Auto Orient</option>
+                      <option value="portrait">Portrait</option>
+                      <option value="landscape">Landscape</option>
+                    </select>
+                  </div>
 
-                <div>
-                  <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1.5 block">
-                    Page Margin
-                  </label>
-                  <select
-                    value={options.marginMm}
-                    onChange={(e) => setOptions({ ...options, marginMm: Number(e.target.value) })}
-                    className="w-full bg-[#222226] border border-zinc-700 rounded-xl px-3 py-2 text-xs font-medium text-zinc-200 outline-none focus:border-[#1473E6]"
-                  >
-                    <option value={0}>Borderless (0 mm)</option>
-                    <option value={5}>Standard (5 mm)</option>
-                    <option value={10}>Spacious (10 mm)</option>
-                  </select>
+                  <div>
+                    <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1.5 block">
+                      Page Margin
+                    </label>
+                    <select
+                      value={options.marginMm}
+                      onChange={(e) => setOptions({ ...options, marginMm: Number(e.target.value) })}
+                      className="w-full bg-[#222226] border border-zinc-700 rounded-xl px-3 py-2 text-xs font-medium text-zinc-200 outline-none focus:border-[#1473E6]"
+                    >
+                      <option value={0}>Borderless (0 mm)</option>
+                      <option value={5}>Standard (5 mm)</option>
+                      <option value={10}>Spacious (10 mm)</option>
+                    </select>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -333,7 +350,7 @@ export const AdobeExportModal: React.FC<AdobeExportModalProps> = ({
             </button>
 
             <span className="text-[11px] text-zinc-400 font-mono">
-              Estimated: ~{(pages.length * 0.45).toFixed(1)} MB
+              Estimated: ~{(pages.length * 0.35).toFixed(1)} MB
             </span>
           </div>
 
