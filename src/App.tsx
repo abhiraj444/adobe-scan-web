@@ -17,14 +17,12 @@ import { AdobeDocumentStage } from './components/AdobeDocumentStage';
 import { PageFilmstrip } from './components/PageFilmstrip';
 import { AdobeBottomToolbar } from './components/AdobeBottomToolbar';
 import { AdobeCropModal } from './components/AdobeCropModal';
-import { AdobeFilterSheet } from './components/AdobeFilterSheet';
-import { AdobeAdjustSheet } from './components/AdobeAdjustSheet';
 import { AdobeCleanupModal } from './components/AdobeCleanupModal';
-import { AdobeResizeModal } from './components/AdobeResizeModal';
 import { AdobeReorderModal } from './components/AdobeReorderModal';
 import { AdobeCameraModal } from './components/AdobeCameraModal';
 import { AdobeExportModal } from './components/AdobeExportModal';
 import { AdobeEmptyState } from './components/AdobeEmptyState';
+import { AdobeEditInspector, EditTab } from './components/AdobeEditInspector';
 
 import { 
   Camera, 
@@ -64,12 +62,10 @@ export default function App() {
     message: '',
   });
 
-  // Modal Sheet Visibility
+  // Edit Inspector & Modal Visibility
+  const [activeEditTab, setActiveEditTab] = useState<EditTab | null>(null);
   const [isCropModalOpen, setIsCropModalOpen] = useState(false);
-  const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
-  const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
   const [isCleanupModalOpen, setIsCleanupModalOpen] = useState(false);
-  const [isResizeModalOpen, setIsResizeModalOpen] = useState(false);
   const [isReorderModalOpen, setIsReorderModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
@@ -568,6 +564,19 @@ export default function App() {
     }
   };
 
+  // Pre-cache active page image element in memory for instantaneous slider responsiveness
+  useEffect(() => {
+    if (activePage && !activePage.originalImage && activePage.originalDataUrl) {
+      loadImage(activePage.originalDataUrl)
+        .then((img) => {
+          setPages((prev) =>
+            prev.map((p) => (p.id === activePage.id && !p.originalImage ? { ...p, originalImage: img } : p))
+          );
+        })
+        .catch((e) => console.warn('Failed to pre-cache image:', e));
+    }
+  }, [activePage?.id, activePage?.originalDataUrl, loadImage]);
+
   // Preset pill selection - updates ONLY the active page
   const handleSelectPreset = (newMode: PresetMode) => {
     if (!activePage) return;
@@ -597,12 +606,12 @@ export default function App() {
   };
 
   // APPLY TO ALL PAGES: Instantly propagates the active page's filter & settings to each page, and processes them in the background
-  const handleApplyToAllPages = async (settingsToApply?: FilterSettings, modeToApply?: PresetMode) => {
+  const handleApplyToAllPages = async (settingsToApply?: FilterSettings, modeToApply?: PresetMode, paperSizeToApply?: PaperSize) => {
     if (!activePage || pages.length <= 1) return;
 
     const targetSettings = settingsToApply || activePage.settings;
     const targetMode = modeToApply || activePage.mode;
-    const targetPaperSize = activePage.paperSize || 'original';
+    const targetPaperSize = paperSizeToApply || activePage.paperSize || 'original';
 
     pushHistory(pages);
 
@@ -799,20 +808,65 @@ export default function App() {
           />
         ) : activePage ? (
           <>
-            {/* Center Document Stage */}
-            <main className="flex-1 relative overflow-hidden bg-[#0d0d11]">
-              <AdobeDocumentStage
-                originalDataUrl={activePage.originalDataUrl}
-                processedDataUrl={activePage.isEdited && activePage.processedDataUrl ? activePage.processedDataUrl : activePage.originalDataUrl}
-                status={activePage.status}
-                pageIndex={activePageIndex}
-                totalPages={pages.length}
-                onOpenCrop={handleOpenCropModal}
-              />
-            </main>
+            {/* Split layout: Document Stage + Live Edit Inspector (Desktop) */}
+            <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative min-h-0">
+              {/* Center / Left Document Stage */}
+              <main className="flex-1 relative overflow-hidden bg-[#0d0d11] flex flex-col min-h-0">
+                <AdobeDocumentStage
+                  originalDataUrl={activePage.originalDataUrl}
+                  processedDataUrl={activePage.isEdited && activePage.processedDataUrl ? activePage.processedDataUrl : activePage.originalDataUrl}
+                  status={activePage.status}
+                  pageIndex={activePageIndex}
+                  totalPages={pages.length}
+                  onOpenCrop={handleOpenCropModal}
+                />
+              </main>
+
+              {/* Desktop Live Edit Inspector Panel (docked right alongside document, non-blocking) */}
+              {activeEditTab && (
+                <div className="hidden md:flex h-full shrink-0">
+                  <AdobeEditInspector
+                    isOpen={true}
+                    activeTab={activeEditTab}
+                    onTabChange={setActiveEditTab}
+                    onClose={() => setActiveEditTab(null)}
+                    pageIndex={activePageIndex}
+                    totalPages={pages.length}
+                    currentMode={activePage.mode}
+                    onSelectPreset={handleSelectPreset}
+                    settings={activePage.settings}
+                    onChangeSettings={handleChangeAdjustSettings}
+                    currentPaperSize={activePage.paperSize || 'original'}
+                    onSelectPaperSize={handleApplyPaperSize}
+                    onApplyToAllPages={handleApplyToAllPages}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Mobile Live Edit Inspector Drawer (docked at bottom, document stage remains fully visible above!) */}
+            {activeEditTab && (
+              <div className="md:hidden shrink-0">
+                <AdobeEditInspector
+                  isOpen={true}
+                  activeTab={activeEditTab}
+                  onTabChange={setActiveEditTab}
+                  onClose={() => setActiveEditTab(null)}
+                  pageIndex={activePageIndex}
+                  totalPages={pages.length}
+                  currentMode={activePage.mode}
+                  onSelectPreset={handleSelectPreset}
+                  settings={activePage.settings}
+                  onChangeSettings={handleChangeAdjustSettings}
+                  currentPaperSize={activePage.paperSize || 'original'}
+                  onSelectPaperSize={handleApplyPaperSize}
+                  onApplyToAllPages={handleApplyToAllPages}
+                />
+              </div>
+            )}
 
             {/* Docked Filmstrip Carousel if >1 page */}
-            {pages.length > 1 && (
+            {pages.length > 1 && !activeEditTab && (
               <PageFilmstrip
                 pages={pages}
                 activePageIndex={activePageIndex}
@@ -834,23 +888,26 @@ export default function App() {
             )}
 
             {/* Bottom Adobe Tool Ribbon */}
-            <AdobeBottomToolbar
-              page={activePage}
-              pageIndex={activePageIndex}
-              totalPages={pages.length}
-              onOpenAdd={() => setIsAddMenuOpen(true)}
-              onOpenReorder={() => setIsReorderModalOpen(true)}
-              onOpenCrop={handleOpenCropModal}
-              onRotate={handleRotateActivePage}
-              onOpenFilters={() => setIsFiltersModalOpen(true)}
-              onOpenCleanup={() => setIsCleanupModalOpen(true)}
-              onOpenAdjust={() => setIsAdjustModalOpen(true)}
-              onOpenResize={() => setIsResizeModalOpen(true)}
-              onApplyToAll={() => handleApplyToAllPages()}
-              onDelete={() => handleDeletePage(activePageIndex)}
-              onPrevPage={() => setActivePageIndex((p) => Math.max(0, p - 1))}
-              onNextPage={() => setActivePageIndex((p) => Math.min(pages.length - 1, p + 1))}
-            />
+            <div className={activeEditTab ? "hidden md:block" : "block"}>
+              <AdobeBottomToolbar
+                page={activePage}
+                pageIndex={activePageIndex}
+                totalPages={pages.length}
+                activeTool={activeEditTab}
+                onOpenAdd={() => setIsAddMenuOpen(true)}
+                onOpenReorder={() => setIsReorderModalOpen(true)}
+                onOpenCrop={handleOpenCropModal}
+                onRotate={handleRotateActivePage}
+                onOpenFilters={() => setActiveEditTab((prev) => (prev === 'filters' ? null : 'filters'))}
+                onOpenCleanup={() => setIsCleanupModalOpen(true)}
+                onOpenAdjust={() => setActiveEditTab((prev) => (prev === 'adjust' ? null : 'adjust'))}
+                onOpenResize={() => setActiveEditTab((prev) => (prev === 'resize' ? null : 'resize'))}
+                onApplyToAll={() => handleApplyToAllPages()}
+                onDelete={() => handleDeletePage(activePageIndex)}
+                onPrevPage={() => setActivePageIndex((p) => Math.max(0, p - 1))}
+                onNextPage={() => setActivePageIndex((p) => Math.min(pages.length - 1, p + 1))}
+              />
+            </div>
           </>
         ) : null}
       </div>
@@ -945,34 +1002,6 @@ export default function App() {
         />
       )}
 
-      {/* Adobe Filters Preset Drawer */}
-      {activePage && (
-        <AdobeFilterSheet
-          isOpen={isFiltersModalOpen}
-          onClose={() => setIsFiltersModalOpen(false)}
-          currentMode={activePage.mode}
-          onSelectPreset={handleSelectPreset}
-          onApplyToAllPages={(settings, mode) => handleApplyToAllPages(settings, mode)}
-          currentSettings={activePage.settings}
-          pageIndex={activePageIndex}
-          totalPages={pages.length}
-        />
-      )}
-
-      {/* Adjust Sliders Drawer */}
-      {activePage && (
-        <AdobeAdjustSheet
-          isOpen={isAdjustModalOpen}
-          onClose={() => setIsAdjustModalOpen(false)}
-          settings={activePage.settings}
-          mode={activePage.mode}
-          pageIndex={activePageIndex}
-          totalPages={pages.length}
-          onChangeSettings={handleChangeAdjustSettings}
-          onApplyToAllPages={(settings, mode) => handleApplyToAllPages(settings, mode)}
-        />
-      )}
-
       {/* Clean Up & Retouch Brush Modal */}
       {activePage && (
         <AdobeCleanupModal
@@ -981,18 +1010,6 @@ export default function App() {
           onApplyCleanup={handleApplyCleanup}
           imageCanvas={activePage.processedCanvas || null}
           initialStrokes={activePage.cleanupStrokes}
-        />
-      )}
-
-      {/* Paper Standard Resize Modal */}
-      {activePage && (
-        <AdobeResizeModal
-          isOpen={isResizeModalOpen}
-          onClose={() => setIsResizeModalOpen(false)}
-          currentSize={activePage.paperSize || 'original'}
-          onSelectSize={handleApplyPaperSize}
-          pageIndex={activePageIndex}
-          totalPages={pages.length}
         />
       )}
 

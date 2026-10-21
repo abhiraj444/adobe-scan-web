@@ -19,6 +19,7 @@ interface AdobeBottomToolbarProps {
   page: PageItem;
   pageIndex: number;
   totalPages: number;
+  activeTool?: string | null;
   onOpenAdd: () => void;
   onOpenReorder: () => void;
   onOpenCrop: () => void;
@@ -37,6 +38,7 @@ export const AdobeBottomToolbar: React.FC<AdobeBottomToolbarProps> = ({
   page,
   pageIndex,
   totalPages,
+  activeTool,
   onOpenAdd,
   onOpenReorder,
   onOpenCrop,
@@ -105,13 +107,21 @@ export const AdobeBottomToolbar: React.FC<AdobeBottomToolbarProps> = ({
         {/* 5. Filters (Adobe Color Mode Presets) */}
         <button
           onClick={onOpenFilters}
-          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer shrink-0"
+          className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl transition-all min-w-[56px] cursor-pointer shrink-0 ${
+            activeTool === 'filters'
+              ? 'bg-[#1473E6]/20 text-white ring-1 ring-[#1473E6]'
+              : 'text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95'
+          }`}
           title="Choose Color, Magic Color, Whiteboard, or B&W"
         >
-          <div className="w-8 h-8 rounded-full bg-[#1e1e24] flex items-center justify-center border border-zinc-700/60 text-purple-400">
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center border transition-all ${
+            activeTool === 'filters'
+              ? 'bg-[#1473E6] border-[#1473E6] text-white shadow-md shadow-blue-500/30'
+              : 'bg-[#1e1e24] border-zinc-700/60 text-purple-400'
+          }`}>
             <Sparkles className="w-4 h-4" />
           </div>
-          <span className="text-[10px] font-medium tracking-tight">Filters</span>
+          <span className={`text-[10px] font-medium tracking-tight ${activeTool === 'filters' ? 'font-bold text-blue-300' : ''}`}>Filters</span>
         </button>
 
         {/* 6. Clean Up (Retouch & Eraser Brush) */}
@@ -129,13 +139,21 @@ export const AdobeBottomToolbar: React.FC<AdobeBottomToolbarProps> = ({
         {/* 7. Adjust (Fine Tuning Sliders) */}
         <button
           onClick={onOpenAdjust}
-          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer shrink-0"
+          className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl transition-all min-w-[56px] cursor-pointer shrink-0 ${
+            activeTool === 'adjust'
+              ? 'bg-[#1473E6]/20 text-white ring-1 ring-[#1473E6]'
+              : 'text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95'
+          }`}
           title="Brightness, contrast, sharpness & ink tuning"
         >
-          <div className="w-8 h-8 rounded-full bg-[#1e1e24] flex items-center justify-center border border-zinc-700/60 text-amber-400">
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center border transition-all ${
+            activeTool === 'adjust'
+              ? 'bg-[#1473E6] border-[#1473E6] text-white shadow-md shadow-blue-500/30'
+              : 'bg-[#1e1e24] border-zinc-700/60 text-amber-400'
+          }`}>
             <SlidersHorizontal className="w-4 h-4" />
           </div>
-          <span className="text-[10px] font-medium tracking-tight">Adjust</span>
+          <span className={`text-[10px] font-medium tracking-tight ${activeTool === 'adjust' ? 'font-bold text-blue-300' : ''}`}>Adjust</span>
         </button>
 
         {/* 8. Apply to All Pages (Prominent Quick Action) */}
@@ -155,13 +173,21 @@ export const AdobeBottomToolbar: React.FC<AdobeBottomToolbarProps> = ({
         {/* 9. Resize (Paper Standard Format) */}
         <button
           onClick={onOpenResize}
-          className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95 transition-all min-w-[56px] cursor-pointer shrink-0"
+          className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl transition-all min-w-[56px] cursor-pointer shrink-0 ${
+            activeTool === 'resize'
+              ? 'bg-[#1473E6]/20 text-white ring-1 ring-[#1473E6]'
+              : 'text-zinc-300 hover:text-white hover:bg-[#27272a] active:scale-95'
+          }`}
           title="Set paper standard (A4, Letter, ID Card)"
         >
-          <div className="w-8 h-8 rounded-full bg-[#1e1e24] flex items-center justify-center border border-zinc-700/60 text-teal-400">
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center border transition-all ${
+            activeTool === 'resize'
+              ? 'bg-[#1473E6] border-[#1473E6] text-white shadow-md shadow-blue-500/30'
+              : 'bg-[#1e1e24] border-zinc-700/60 text-teal-400'
+          }`}>
             <Maximize className="w-4 h-4" />
           </div>
-          <span className="text-[10px] font-medium tracking-tight">Resize</span>
+          <span className={`text-[10px] font-medium tracking-tight ${activeTool === 'resize' ? 'font-bold text-blue-300' : ''}`}>Resize</span>
         </button>
 
         {/* 10. Delete Page */}

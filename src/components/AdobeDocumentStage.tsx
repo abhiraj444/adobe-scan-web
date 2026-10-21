@@ -129,7 +129,7 @@ export const AdobeDocumentStage: React.FC<AdobeDocumentStageProps> = ({
       </div>
 
       {/* Main Document Viewport */}
-      <div className="relative flex-1 w-full h-full flex items-center justify-center p-3 sm:p-6 overflow-hidden">
+      <div className="relative flex-1 w-full h-full flex items-center justify-center px-3 sm:px-6 pt-14 pb-12 sm:pt-16 sm:pb-12 overflow-hidden">
         {/* Processing Spinner Overlay */}
         {status === 'processing' && (
           <div className="absolute inset-0 bg-black/60 backdrop-blur-xs z-30 flex items-center justify-center animate-in fade-in duration-150">
@@ -148,12 +148,12 @@ export const AdobeDocumentStage: React.FC<AdobeDocumentStageProps> = ({
         >
           {viewMode === 'split' && !isHoldingOriginal ? (
             /* Split Before / After View */
-            <div className="relative max-h-[calc(100vh-220px)] max-w-full inline-block overflow-hidden shadow-2xl border border-zinc-800 rounded bg-white">
+            <div className="relative max-h-full max-w-full inline-flex items-center justify-center overflow-hidden shadow-2xl border border-zinc-800 rounded bg-white">
               {/* Cleaned Document Image on Base */}
               <img
                 src={processedDataUrl || originalDataUrl}
                 alt="Cleaned Document"
-                className="block max-h-[calc(100vh-220px)] max-w-full object-contain pointer-events-none"
+                className="block max-h-[calc(100vh-250px)] max-w-full object-contain pointer-events-none select-none max-md:max-h-[38vh]"
               />
 
               {/* Original Raw Photo Clipped Overlay */}
@@ -164,7 +164,7 @@ export const AdobeDocumentStage: React.FC<AdobeDocumentStageProps> = ({
                 <img
                   src={originalDataUrl}
                   alt="Original Photo"
-                  className="max-h-[calc(100vh-220px)] max-w-none object-contain pointer-events-none"
+                  className="max-h-[calc(100vh-250px)] max-w-none object-contain pointer-events-none select-none max-md:max-h-[38vh]"
                   style={{
                     width: imageContainerRef.current?.querySelector('img')?.clientWidth || '100%',
                     height: imageContainerRef.current?.querySelector('img')?.clientHeight || '100%',
@@ -196,11 +196,11 @@ export const AdobeDocumentStage: React.FC<AdobeDocumentStageProps> = ({
             </div>
           ) : (
             /* Single Image View (Cleaned or Original) */
-            <div className="relative max-h-[calc(100vh-220px)] max-w-full inline-block shadow-2xl rounded overflow-hidden border border-zinc-800 bg-white">
+            <div className="relative max-h-full max-w-full inline-flex items-center justify-center shadow-2xl rounded overflow-hidden border border-zinc-800 bg-white">
               <img
                 src={activeSrc}
                 alt="Document View"
-                className="max-h-[calc(100vh-220px)] max-w-full object-contain pointer-events-none"
+                className="max-h-[calc(100vh-250px)] max-w-full object-contain pointer-events-none select-none max-md:max-h-[38vh]"
               />
 
               {isHoldingOriginal && (
