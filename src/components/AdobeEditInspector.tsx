@@ -456,23 +456,42 @@ export const AdobeEditInspector: React.FC<AdobeEditInspectorProps> = ({
                   />
                 </div>
 
-                {/* Sauvola Binarization Sensitivity */}
+                {/* Sauvola Binarization Sensitivity & Weight */}
                 {settings.colorMode === 'binary' && (
-                  <div className="space-y-1 p-2.5 rounded-xl bg-[#1e1e23] border border-zinc-800">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium text-zinc-200">Sauvola Sensitivity</span>
-                      <span className="font-mono text-[#1473E6] font-bold text-xs">
-                        {settings.sauvolaSensitivity}%
-                      </span>
+                  <div className="space-y-3 p-3 rounded-xl bg-[#1e1e23] border border-zinc-800">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-medium text-zinc-200">B&W Text Weight (Density)</span>
+                        <span className="font-mono text-[#1473E6] font-bold text-xs">
+                          {settings.threshold}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="80"
+                        max="180"
+                        value={settings.threshold}
+                        onChange={(e) => updateSetting('threshold', Number(e.target.value))}
+                        className="w-full accent-[#1473E6] bg-[#161619] h-2 rounded-lg appearance-none cursor-pointer"
+                      />
                     </div>
-                    <input
-                      type="range"
-                      min="10"
-                      max="90"
-                      value={settings.sauvolaSensitivity}
-                      onChange={(e) => updateSetting('sauvolaSensitivity', Number(e.target.value))}
-                      className="w-full accent-[#1473E6] bg-[#161619] h-2 rounded-lg appearance-none cursor-pointer"
-                    />
+
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-medium text-zinc-200">Local Detail Sensitivity</span>
+                        <span className="font-mono text-[#1473E6] font-bold text-xs">
+                          {settings.sauvolaSensitivity}%
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="10"
+                        max="90"
+                        value={settings.sauvolaSensitivity}
+                        onChange={(e) => updateSetting('sauvolaSensitivity', Number(e.target.value))}
+                        className="w-full accent-[#1473E6] bg-[#161619] h-2 rounded-lg appearance-none cursor-pointer"
+                      />
+                    </div>
                   </div>
                 )}
               </div>

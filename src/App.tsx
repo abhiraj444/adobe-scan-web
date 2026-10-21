@@ -74,6 +74,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isBatchProcessingRef = useRef(false);
+  const pageJobCounterRef = useRef<Record<string, number>>({});
 
   const activePage = pages[activePageIndex];
 
@@ -138,19 +139,25 @@ export default function App() {
     });
   }, []);
 
-  // Reprocess a single page on demand using Web Worker
+  // Reprocess a single page on demand using Web Worker with stale-job cancellation
   const reprocessPage = useCallback(
     async (
       page: PageItem,
       newCorners?: Quadrilateral,
       newSettings?: FilterSettings,
       newCleanup?: CleanupStroke[],
-      newPaperSize?: PaperSize
+      newPaperSize?: PaperSize,
+      jobId?: number
     ) => {
       const cornersToUse = newCorners || page.corners;
       const settingsToUse = newSettings || page.settings;
       const cleanupToUse = newCleanup !== undefined ? newCleanup : page.cleanupStrokes;
       const paperSizeToUse = newPaperSize || page.paperSize || 'original';
+
+      const currentJobId = jobId ?? ((pageJobCounterRef.current[page.id] || 0) + 1);
+      if (!jobId) {
+        pageJobCounterRef.current[page.id] = currentJobId;
+      }
 
       try {
         let img = page.originalImage;
@@ -166,44 +173,54 @@ export default function App() {
           paperSizeToUse
         );
 
+        // Discard result if a newer job was initiated for this page while processing!
+        if (pageJobCounterRef.current[page.id] !== currentJobId) {
+          return;
+        }
+
         setPages((prev) =>
-          prev.map((p) =>
-            p.id === page.id
-              ? {
-                  ...p,
-                  originalImage: img,
-                  isEdited: true,
-                  corners: cornersToUse,
-                  settings: settingsToUse,
-                  cleanupStrokes: cleanupToUse,
-                  paperSize: paperSizeToUse,
-                  processedCanvas,
-                  processedDataUrl: dataUrl,
-                  thumbnailUrl,
-                  status: 'ready',
-                }
-              : p
-          )
+          prev.map((p) => {
+            if (p.id !== page.id) return p;
+            return {
+              ...p,
+              originalImage: img,
+              isEdited: true,
+              corners: cornersToUse,
+              // Keep the user's latest settings (p.settings), NEVER overwrite with stale settingsToUse!
+              settings: p.settings,
+              cleanupStrokes: cleanupToUse,
+              paperSize: paperSizeToUse,
+              processedCanvas,
+              processedDataUrl: dataUrl,
+              thumbnailUrl,
+              status: 'ready',
+            };
+          })
         );
       } catch (err: any) {
         console.error('Processing error:', err);
-        setPages((prev) =>
-          prev.map((p) =>
-            p.id === page.id ? { ...p, status: 'error', errorMessage: err.message } : p
-          )
-        );
+        if (pageJobCounterRef.current[page.id] === currentJobId) {
+          setPages((prev) =>
+            prev.map((p) =>
+              p.id === page.id ? { ...p, status: 'error', errorMessage: err.message } : p
+            )
+          );
+        }
       }
     },
     [loadImage]
   );
 
-  // Debounced processor for fine slider tuning on active page
+  // Debounced processor for fine slider tuning on active page with stale-drop protection
   const triggerDebouncedProcess = useCallback(
     (page: PageItem, newSettings: FilterSettings) => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      const nextJobId = (pageJobCounterRef.current[page.id] || 0) + 1;
+      pageJobCounterRef.current[page.id] = nextJobId;
+
       debounceTimerRef.current = setTimeout(() => {
-        reprocessPage(page, page.corners, newSettings, page.cleanupStrokes, page.paperSize);
-      }, 35);
+        reprocessPage(page, page.corners, newSettings, page.cleanupStrokes, page.paperSize, nextJobId);
+      }, 40);
     },
     [reprocessPage]
   );
@@ -577,7 +594,7 @@ export default function App() {
     }
   }, [activePage?.id, activePage?.originalDataUrl, loadImage]);
 
-  // Preset pill selection - updates ONLY the active page
+  // Preset pill selection - updates ONLY the active page immediately
   const handleSelectPreset = (newMode: PresetMode) => {
     if (!activePage) return;
     pushHistory(pages);
@@ -586,15 +603,19 @@ export default function App() {
         ? { ...activePage.settings }
         : { ...PRESET_CONFIGS[newMode], rotation: activePage.settings.rotation };
 
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    const nextJobId = (pageJobCounterRef.current[activePage.id] || 0) + 1;
+    pageJobCounterRef.current[activePage.id] = nextJobId;
+
     setPages((prev) =>
       prev.map((p) =>
         p.id === activePage.id ? { ...p, mode: newMode, settings: newSettings, isEdited: true } : p
       )
     );
-    reprocessPage(activePage, activePage.corners, newSettings, activePage.cleanupStrokes, activePage.paperSize);
+    reprocessPage(activePage, activePage.corners, newSettings, activePage.cleanupStrokes, activePage.paperSize, nextJobId);
   };
 
-  // Sliders update from Adjust Sheet - updates ONLY the active page
+  // Sliders update from Adjust Sheet - updates ONLY the active page immediately without jumping
   const handleChangeAdjustSettings = (newSettings: FilterSettings) => {
     if (!activePage) return;
     setPages((prev) =>

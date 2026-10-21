@@ -4,6 +4,7 @@ import { applyDocumentFilters } from './filters';
 interface PendingJob {
   resolve: (data: ImageData) => void;
   reject: (err: any) => void;
+  timeoutId: any;
 }
 
 class CVWorkerPool {
@@ -33,7 +34,9 @@ class CVWorkerPool {
         const job = this.pendingJobs.get(id);
         if (!job) return;
 
+        clearTimeout(job.timeoutId);
         this.pendingJobs.delete(id);
+
         if (success && imgData) {
           job.resolve(imgData);
         } else {
@@ -42,7 +45,7 @@ class CVWorkerPool {
       };
 
       this.worker.onerror = (err) => {
-        console.warn('CV Worker failed to initialize or encountered error, falling back to main thread', err);
+        console.warn('CV Worker error, falling back to main thread', err);
         this.isAvailable = false;
       };
 
@@ -66,10 +69,22 @@ class CVWorkerPool {
     const id = `job_${Date.now()}_${++this.jobCounter}`;
 
     return new Promise<ImageData>((resolve, reject) => {
-      this.pendingJobs.set(id, { resolve, reject });
+      // 2-second timeout watchdog so UI never hangs if worker is busy
+      const timeoutId = setTimeout(() => {
+        if (this.pendingJobs.has(id)) {
+          this.pendingJobs.delete(id);
+          try {
+            const fallback = applyDocumentFilters(imgData, settings, cleanupStrokes);
+            resolve(fallback);
+          } catch (err) {
+            reject(err);
+          }
+        }
+      }, 2000);
+
+      this.pendingJobs.set(id, { resolve, reject, timeoutId });
 
       try {
-        // Clone or copy buffer to avoid detaching if needed, or pass transferable
         const copyData = new ImageData(
           new Uint8ClampedArray(imgData.data),
           imgData.width,
@@ -86,6 +101,7 @@ class CVWorkerPool {
           [copyData.data.buffer]
         );
       } catch (err) {
+        clearTimeout(timeoutId);
         this.pendingJobs.delete(id);
         // Fallback to main thread
         try {
